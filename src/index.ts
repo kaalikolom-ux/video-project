@@ -514,6 +514,45 @@ app.get('/', (c) => {
         </div>
 
         <div class="p-6 overflow-y-auto space-y-6 flex-1">
+          <!-- Audio & Media Preview for Poem Projects -->
+          <div id="media-preview-section" class="p-4 rounded-2xl bg-gradient-to-r from-purple-950/30 to-indigo-950/30 border border-purple-500/20 space-y-3 hidden">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-purple-300 flex items-center justify-between">
+              <span><i class="fa-solid fa-headphones mr-1.5"></i> আবৃত্তির অডিও ও স্থির ছবি</span>
+              <span class="text-[11px] text-emerald-400 font-normal"><i class="fa-solid fa-circle-check mr-1"></i>রেডি আছে</span>
+            </h4>
+            <div class="flex flex-col sm:flex-row items-center gap-4">
+              <img id="detail-portrait" src="https://raw.githubusercontent.com/kaalikolom-ux/video-project/main/assets/poem_portrait.jpg" class="w-20 h-20 rounded-xl object-cover border border-purple-500/40 shadow-lg" alt="Poet Portrait">
+              <div class="flex-1 w-full space-y-2">
+                <div class="text-xs text-gray-300 font-medium">বাংলা আবৃত্তি (Neural Voice - 66.5s)</div>
+                <audio id="detail-audio" controls class="w-full h-9 rounded-lg accent-purple-500">
+                  <source src="https://raw.githubusercontent.com/kaalikolom-ux/video-project/main/assets/poem_recitation.mp3" type="audio/mpeg">
+                </audio>
+              </div>
+            </div>
+            
+            <!-- Video Generation Callout -->
+            <div class="mt-3 p-3 rounded-xl bg-gray-950/70 border border-purple-500/30 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div class="text-xs text-gray-300">
+                <span class="font-bold text-white block mb-0.5"><i class="fa-solid fa-microchip text-yellow-400 mr-1"></i> ফ্রি GPU-তে ভিডিও রেন্ডার করুন:</span>
+                ক্লাউডফ্লেয়ারের সার্ভারে কোনো GPU থাকে না। তাই ১০০% ফ্রিতে নিখুঁত লিপ-সিঙ্ক ভিডিও তৈরি করতে আমাদের গুগল কোলাব ফ্রি GPU ইঞ্জিন ব্যবহার করুন।
+              </div>
+              <a href="https://colab.research.google.com/github/kaalikolom-ux/video-project/blob/main/colab_talking_photo_lipsync.ipynb" target="_blank" class="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-bold whitespace-nowrap shadow-md flex items-center space-x-1.5 transition">
+                <i class="fa-solid fa-play"></i>
+                <span>১-ক্লিকে ফ্রি ভিডিও বানান</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- Video Player Display (if video exists) -->
+          <div id="video-display-section" class="p-4 rounded-2xl bg-gray-950 border border-gray-800 space-y-3 hidden">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+              <span><i class="fa-solid fa-film mr-1.5 text-brand-400"></i> রেন্ডার করা ভিডিও প্লেয়ার</span>
+            </h4>
+            <div class="aspect-video max-w-md mx-auto bg-black rounded-xl overflow-hidden flex items-center justify-center border border-gray-800 shadow-xl">
+              <video id="detail-video-player" controls class="w-full h-full object-contain"></video>
+            </div>
+          </div>
+
           <!-- Pipeline Stepper -->
           <div>
             <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Pipeline Stage Progress</h4>
@@ -654,6 +693,14 @@ app.get('/', (c) => {
 
         document.getElementById('modal-title').innerText = p.title;
         document.getElementById('modal-desc').innerText = (p.description || '') + ' (' + p.pipeline + ' &bull; ' + p.target_duration + 's)';
+
+        const isPoem = p.pipeline === 'poem-talking-avatar';
+        const mediaSec = document.getElementById('media-preview-section');
+        if (isPoem) {
+          mediaSec.classList.remove('hidden');
+        } else {
+          mediaSec.classList.add('hidden');
+        }
 
         const currentStageIdx = ALL_STAGES.indexOf(p.current_stage || 'idea');
         document.getElementById('stage-stepper').innerHTML = ALL_STAGES.map((s, idx) => {
