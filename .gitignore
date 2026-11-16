@@ -114,5 +114,8 @@ venv/
 pytest-of-*/
 
 
+# Cloudflare
+.wrangler/
+
 # GFPGAN/facexlib download face-detection weights to ./gfpgan/weights at runtime
 gfpgan/

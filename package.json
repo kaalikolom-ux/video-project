@@ -1,0 +1,19 @@
+{
+  "name": "video-project",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:remote": "wrangler d1 execute video-project --remote --file=./schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.7.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261116.1",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.163.0"
+  }
+}
