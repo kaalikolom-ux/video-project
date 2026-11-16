@@ -1,11 +1,13 @@
 """Poem-to-Talking-Avatar Video Generator.
 
 Takes a still portrait photograph + poem text, generates an expressive neural voice
-via ElevenLabs (or HeyGen Native), and produces a continuous talking-head video
-(up to 180 seconds) via HeyGen Avatar IV or Kling Avatar.
+via Edge-TTS (free Bengali neural) or ElevenLabs, and produces a continuous talking-head video
+(up to 180 seconds) via Kling Avatar or HeyGen Avatar IV.
 """
 
 import argparse
+import asyncio
+import base64
 import json
 import os
 import sys
@@ -17,139 +19,135 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def generate_elevenlabs_audio(text: str, voice_id: str = "21m00Tcm4TlvDq8ikWAM", output_path: str = "temp_recitation.mp3") -> str:
-    """Generate expressive poem recitation audio using ElevenLabs Multilingual v2."""
-    api_key = os.getenv("ELEVENLABS_API_KEY")
-    if not api_key:
-        raise ValueError("ELEVENLABS_API_KEY not found in environment or .env file.")
-
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    headers = {
-        "xi-api-key": api_key,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg"
-    }
-    payload = {
-        "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.45,
-            "similarity_boost": 0.85,
-            "style": 0.55,
-            "use_speaker_boost": True
+def generate_bengali_audio(text: str, voice: str = "bn-BD-PradeepNeural", output_path: str = "temp_recitation.mp3") -> str:
+    """Generate expressive Bengali poem recitation audio.
+    
+    Uses ElevenLabs if ELEVENLABS_API_KEY is available, otherwise uses Edge-TTS (free & high-quality).
+    """
+    eleven_key = os.getenv("ELEVENLABS_API_KEY")
+    if eleven_key:
+        print("🎙️ Generating Bengali recitation via ElevenLabs Multilingual v2...")
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"
+        headers = {
+            "xi-api-key": eleven_key,
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg"
         }
-    }
+        payload = {
+            "text": text,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {"stability": 0.45, "similarity_boost": 0.85, "style": 0.55}
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=120)
+        if resp.status_code == 200:
+            with open(output_path, "wb") as f:
+                f.write(resp.content)
+            print(f"✅ ElevenLabs audio generated: {output_path}")
+            return output_path
+        else:
+            print(f"⚠️ ElevenLabs TTS failed ({resp.status_code}), falling back to Edge-TTS...")
 
-    print("Generating Bengali recitation audio via ElevenLabs...")
-    resp = requests.post(url, headers=headers, json=payload, timeout=120)
-    if resp.status_code != 200:
-        raise RuntimeError(f"ElevenLabs TTS failed: {resp.status_code} - {resp.text}")
-
-    with open(output_path, "wb") as f:
-        f.write(resp.content)
-
-    print(f"Audio generated successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
+    # Fallback / Default: Edge-TTS
+    print(f"🎙️ Generating high-quality Bengali neural voice via Edge-TTS ({voice})...")
+    import edge_tts
+    
+    async def _synth():
+        comm = edge_tts.Communicate(text, voice, rate="-4%", pitch="+0Hz")
+        await comm.save(output_path)
+    
+    asyncio.run(_synth())
+    print(f"✅ Audio generated successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
     return output_path
 
 
+def render_with_kling_avatar(image_path: str, audio_path: str, output_path: str, prompt: str = "") -> str:
+    """Render avatar talking video using official Kling API."""
+    print("🎬 Invoking official Kling Avatar tool...")
+    from tools.avatar.kling_avatar import KlingAvatar
+    
+    kling = KlingAvatar()
+    inputs = {
+        "image_path": str(Path(image_path).resolve()),
+        "audio_path": str(Path(audio_path).resolve()),
+        "prompt": prompt or "subtle gentle head movement, natural eye blinking, expressive poetry recitation",
+        "mode": "std",
+        "output_path": str(Path(output_path).resolve())
+    }
+    
+    print("Submitting task to Kling API and waiting for completion...")
+    res = kling.execute(inputs)
+    if not res.success:
+        raise RuntimeError(f"Kling Avatar generation failed: {res.error}")
+    
+    print(f"✅ Kling Avatar finished successfully! Video saved to: {res.data.get('video_path') or output_path}")
+    return res.data.get("video_path") or output_path
+
+
 def upload_heygen_asset(file_path: str, content_type: str = "image/jpeg") -> str:
-    """Upload asset (image or audio) to HeyGen."""
     api_key = os.getenv("HEYGEN_API_KEY")
     if not api_key:
         raise ValueError("HEYGEN_API_KEY not found in environment or .env file.")
 
     url = "https://upload.heygen.com/v1/asset"
-    headers = {
-        "X-Api-Key": api_key,
-        "Content-Type": content_type
-    }
-
-    print(f"Uploading {file_path} to HeyGen S3...")
+    headers = {"X-Api-Key": api_key, "Content-Type": content_type}
     with open(file_path, "rb") as f:
         resp = requests.post(url, headers=headers, data=f, timeout=120)
 
     data = resp.json()
     if data.get("code") != 100:
         raise RuntimeError(f"HeyGen upload failed: {data}")
-
-    image_key = data["data"]["image_key"]
-    print(f"Uploaded successfully. Asset key: {image_key}")
-    return image_key
+    return data["data"]["image_key"]
 
 
-def generate_heygen_avatar_iv(image_key: str, script: str = None, audio_url: str = None, orientation: str = "portrait") -> str:
-    """Generate high-definition Avatar IV talking photo video."""
+def render_with_heygen_avatar(image_path: str, poem_text: str, output_path: str) -> str:
     api_key = os.getenv("HEYGEN_API_KEY")
-    url = "https://api.heygen.com/v2/video/av4/generate"
-    headers = {
-        "X-Api-Key": api_key,
-        "Content-Type": "application/json"
-    }
+    if not api_key:
+        raise ValueError("HEYGEN_API_KEY not found in environment or .env file.")
 
+    image_key = upload_heygen_asset(image_path, content_type="image/jpeg")
+    url = "https://api.heygen.com/v2/video/av4/generate"
+    headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
     payload = {
         "image_key": image_key,
-        "video_orientation": orientation,
+        "video_orientation": "portrait",
         "video_title": "Poem Talking Avatar",
         "fit": "cover",
-        "custom_motion_prompt": "reciting poem with gentle expression, nodding head and subtle emotional gaze, natural blinking",
-        "enhance_custom_motion_prompt": True
+        "script": poem_text,
+        "custom_motion_prompt": "gentle subtle head movement, natural eye blinking, expressive poetry recitation, warm smile"
     }
-
-    if script:
-        payload["script"] = script
-        payload["voice_id"] = "1bd001e7e50f421d891986aad5158bc8"  # fallback multilingual voice
-    if audio_url:
-        payload["audio_url"] = audio_url
-
-    print("Submitting HeyGen Avatar IV generation job...")
+    
     resp = requests.post(url, headers=headers, json=payload, timeout=60)
     data = resp.json()
     if data.get("error"):
         raise RuntimeError(f"HeyGen generation failed: {data.get('error')}")
-
     video_id = data["data"]["video_id"]
-    print(f"Video job submitted. Video ID: {video_id}")
-    return video_id
-
-
-def poll_heygen_video(video_id: str, output_path: str = "output_talking_avatar.mp4", max_wait: int = 600) -> str:
-    """Poll HeyGen until video status is completed and download it."""
-    api_key = os.getenv("HEYGEN_API_KEY")
-    url = f"https://api.heygen.com/v1/video_status.get?video_id={video_id}"
-    headers = {"X-Api-Key": api_key}
-
-    print(f"Waiting for video rendering (Job ID: {video_id})...")
-    start = time.time()
-    while time.time() - start < max_wait:
-        resp = requests.get(url, headers=headers, timeout=30)
-        data = resp.json()
-        status = data.get("data", {}).get("status")
-
+    
+    # Poll
+    poll_url = f"https://api.heygen.com/v1/video_status.get?video_id={video_id}"
+    for _ in range(60):
+        time.sleep(10)
+        p_resp = requests.get(poll_url, headers={"X-Api-Key": api_key}, timeout=30)
+        p_data = p_resp.json()
+        status = p_data.get("data", {}).get("status")
         if status == "completed":
-            video_url = data["data"]["video_url"]
-            print(f"Video ready! Downloading from: {video_url}")
+            video_url = p_data["data"]["video_url"]
             v_resp = requests.get(video_url, timeout=120)
             with open(output_path, "wb") as f:
                 f.write(v_resp.content)
-            print(f"Saved finished video to {output_path} ({os.path.getsize(output_path)} bytes)")
             return output_path
         elif status == "failed":
-            raise RuntimeError(f"Video generation failed: {data.get('data', {}).get('error')}")
-
-        print(f"Status: {status} ... waiting (elapsed: {int(time.time() - start)}s)")
-        time.sleep(10)
-
-    raise TimeoutError(f"Video rendering timed out after {max_wait}s.")
+            raise RuntimeError(f"HeyGen rendering failed: {p_data.get('data', {}).get('error')}")
+    raise TimeoutError("HeyGen rendering timed out.")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Create talking avatar video from photo and poem.")
-    parser.add_argument("--image", required=True, help="Path to portrait photograph")
+    parser.add_argument("--image", default="assets/user_portrait.jpg", help="Path to portrait photograph")
     parser.add_argument("--poem", help="Poem text or lyrics")
     parser.add_argument("--poem-file", help="Path to text file containing poem")
-    parser.add_argument("--output", default="renders/poem_avatar_180s.mp4", help="Output MP4 path")
-    parser.add_argument("--voice-id", default="21m00Tcm4TlvDq8ikWAM", help="ElevenLabs Voice ID")
-    parser.add_argument("--provider", default="heygen", choices=["heygen", "kling"], help="Avatar provider")
+    parser.add_argument("--output", default="renders/poem_talking_avatar.mp4", help="Output MP4 path")
+    parser.add_argument("--voice", default="bn-BD-PradeepNeural", choices=["bn-BD-PradeepNeural", "bn-BD-NabanitaNeural", "bn-IN-BashkarNeural"], help="Voice name")
+    parser.add_argument("--provider", default="kling", choices=["kling", "heygen"], help="Avatar provider")
     args = parser.parse_args()
 
     poem_text = args.poem
@@ -158,28 +156,35 @@ def main():
             poem_text = f.read()
 
     if not poem_text:
-        print("Error: Please provide --poem or --poem-file.")
-        sys.exit(1)
+        poem_text = (
+            "মেঘ বলেছে যাব যাব, রাত বলেছে যাই,\n"
+            "সাগর বলে কূল মিলেছে, আমি তো আর নাই।\n"
+            "দুখের সাথে রইনু পড়ে নিশিদিশিন আমি,\n"
+            "তোমার প্রেমে আঁধার রাতে আলো জ্বালো স্বামী।"
+        )
+        print("ℹ️ No poem text specified. Using default classic poem demo.")
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
 
     print("====================================================")
-    print(" Poem to Talking Avatar Video Generator (Up to 180s) ")
+    print(" 🎬 Poem to Talking Avatar Video Generator (Up to 180s) ")
     print("====================================================")
     print(f"Portrait Image : {args.image}")
-    print(f"Poem Length    : {len(poem_text)} characters")
+    print(f"Poem Text      :\n{poem_text}")
+    print(f"Voice          : {args.voice}")
     print(f"Provider       : {args.provider}")
     print(f"Output File    : {args.output}")
     print("====================================================")
 
-    # Step 1: Upload Image
-    image_key = upload_heygen_asset(args.image, content_type="image/jpeg")
+    # 1. Generate Voice
+    audio_file = generate_bengali_audio(poem_text, voice=args.voice, output_path="temp_recitation.mp3")
 
-    # Step 2: Generate Video
-    video_id = generate_heygen_avatar_iv(image_key=image_key, script=poem_text, orientation="portrait")
+    # 2. Render Avatar Video
+    if args.provider == "kling":
+        final_video = render_with_kling_avatar(args.image, audio_file, args.output)
+    else:
+        final_video = render_with_heygen_avatar(args.image, poem_text, args.output)
 
-    # Step 3: Poll & Download
-    final_video = poll_heygen_video(video_id=video_id, output_path=args.output)
     print(f"\n🎉 Finished! Output video is ready at: {final_video}")
 
 
