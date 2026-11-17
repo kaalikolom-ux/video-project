@@ -523,9 +523,9 @@ app.get('/', (c) => {
             <div class="flex flex-col sm:flex-row items-center gap-4">
               <img id="detail-portrait" src="https://raw.githubusercontent.com/kaalikolom-ux/video-project/main/assets/poem_portrait.jpg" class="w-20 h-20 rounded-xl object-cover border border-purple-500/40 shadow-lg" alt="Poet Portrait">
               <div class="flex-1 w-full space-y-2">
-                <div class="text-xs text-gray-300 font-medium">বাংলা আবৃত্তি (Neural Voice - 66.5s)</div>
+                <div class="text-xs text-gray-300 font-medium">বাংলা আবৃত্তি (ElevenLabs Ultra-Realistic Neural Voice - 52.3s)</div>
                 <audio id="detail-audio" controls class="w-full h-9 rounded-lg accent-purple-500">
-                  <source src="https://raw.githubusercontent.com/kaalikolom-ux/video-project/main/assets/poem_recitation.mp3" type="audio/mpeg">
+                  <source src="https://raw.githubusercontent.com/kaalikolom-ux/video-project/main/assets/poem_recitation.mp3?v=elevenlabs" type="audio/mpeg">
                 </audio>
               </div>
             </div>
